@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   zookeeper:
-    image: bitnami/zookeeper:3.8
+    image: bitnami/zookeeper:latest
     container_name: zookeeper
     ports:
       - "2181:2181"
@@ -12,7 +12,7 @@ services:
       - kafka-net
 
   kafka:
-    image: bitnami/kafka:3.5
+    image: bitnami/kafka:latest
     container_name: kafka
     ports:
       - "9092:9092"    # for internal (Docker)
