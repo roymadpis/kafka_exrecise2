@@ -32,9 +32,16 @@ messages_consumed = Counter(
 # This requires the producer to include a timestamp in the message, and the consumer to calculate the latency based on that timestamp.
 latency_histogram = Histogram(
     'message_processing_latency_seconds', 
-    'Time from producing to consuming a message',
+    'Total time from producing to consuming (End-to-End)',
     #buckets = [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 15, 20, 100, 200],
     buckets = [0.1, 1, 5, 10, 20, 100, 200, 400, 800],
+)
+
+# Queue Time: Broker/Send to Now
+queue_time_histogram = Histogram(
+    'message_queue_time_seconds',
+    'Time message spent sitting in Kafka topic (Consumer Lag)',
+    buckets=[0.1, 1, 5, 10, 20, 100, 200, 400, 800],
 )
 
 start_http_server(8001)
@@ -53,20 +60,42 @@ while True:
             value_bytes = message.value
 
             try:
-                # Deserialize
+                # Extract the 'send_time' from Kafka Headers
+                send_time_ms = None
+                if message.headers:
+                    for key, value in message.headers:
+                        if key == 'send_time':
+                            send_time_ms = int(value.decode('utf-8'))
+                            break
+                # Deserialize Protobuf message
                 msg = message_pb2.MyMessage()
                 msg.ParseFromString(value_bytes)
 
+                # Timestamps for calculation
+                current_time_ms = int(round(time.time() * 1000))
+                birth_time_ms = msg.timestamp # From Protobuf
+
+                # 3. Calculate and Observe Metrics
+                # Total End-to-End
+                total_latency_sec = (current_time_ms - birth_time_ms) / 1000.0
+                latency_histogram.observe(total_latency_sec)
+                
+                # Time in Queue (Consumer Lag)
+                if send_time_ms:
+                    queue_sec = (current_time_ms - send_time_ms) / 1000.0
+                    queue_time_histogram.observe(queue_sec)
+                    
+                    
+                    
                 # Access fields
                 timestamp = msg.timestamp
                 contents = msg.contents
-
                 print(f"Received: {timestamp=}, {contents=}, from partition #{partition_id}")
 
                 ### compute latency and observe it in the histogram - for prometheus
-                current_time_in_ms = int(round(time.time() * 1000))
-                latency_in_ms = current_time_in_ms - timestamp
-                latency_histogram.observe(latency_in_ms / 1000.0) #record latency in seconds for Prometheus
+                # current_time_in_ms = int(round(time.time() * 1000))
+                # latency_in_ms = current_time_in_ms - timestamp
+                # latency_histogram.observe(latency_in_ms / 1000.0) #record latency in seconds for Prometheus
                 
                 messages_consumed.labels(
                     partition=str(partition_id), 
