@@ -1,0 +1,96 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - kafka-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    ports:
+      - "9092:9092"    # for internal (Docker)
+      - "29092:29092"  # for external (host)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - kafka-net
+    healthcheck: # This checks if Kafka is up and can list topics, which is a good indicator that it's ready to accept connections, if not, it will retry until it is or until it reaches the max retries.
+      start_period: 20s
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list"]
+      interval: 5s
+      timeout: 15s 
+      retries: 5
+
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - kafka-net
+
+  # This creates the topic once Kafka is healthy
+  init-kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka-net
+    entrypoint: [ "/bin/sh", "-c" ] # Use shell to run multiple commands
+    command: | #the command to create the topic, it will run once and then exit, which is why we use it as a one-time init container
+      echo "Waiting for Kafka..."
+      cub kafka-ready -b kafka:9092 1 40
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic my-topic --partitions 10 --replication-factor 1
+      echo "Topic created!"
+  producer:
+    build:
+      context: ./producer_consumer_app
+      dockerfile: producer/Dockerfile
+    container_name: my_producer
+    networks:
+      - kafka-net
+    environment:
+      - EXEC_ENV=prod
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    ports:
+      - "8000:8000"
+    depends_on:
+      kafka:
+        condition: service_healthy # This ensures the producer waits until Kafka is healthy before starting
+      init-kafka:
+        condition: service_completed_successfully # This ensures the producer waits until the topic is created before starting
+
+  consumer:
+    build:
+      context: ./producer_consumer_app
+      dockerfile: consumer/Dockerfile
+    container_name: my_consumer
+    networks:
+      - kafka-net
+    environment:
+      - EXEC_ENV=prod
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    ports:
+      - "8001:8001"
+    depends_on:
+      kafka:
+        condition: service_healthy # This ensures the consumer waits until Kafka is healthy before starting
+      init-kafka:
+        condition: service_completed_successfully # This ensures the consumer waits until the topic is created before starting
+
+networks:
+  kafka-net:
+    driver: bridge # This creates a user-defined bridge network, which allows the containers to communicate with each other using their service names as hostnames (e.g., 'kafka' for the Kafka container).

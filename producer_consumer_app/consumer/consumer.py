@@ -1,9 +1,10 @@
-from prometheus_client import start_http_server, Counter
+from prometheus_client import start_http_server, Counter, Histogram
 from kafka import KafkaConsumer
 from schemas import message_pb2
 import yaml
 import time
 import os
+import random
 
 CONSUMER_GROUP = 'my-consumergroup'
 
@@ -27,14 +28,22 @@ messages_consumed = Counter(
     'Total messages consumed',
     ['partition', 'consumer_group']
 )
+### Roy: adding latency histogram to measure time from producing to consuming a message.
+# This requires the producer to include a timestamp in the message, and the consumer to calculate the latency based on that timestamp.
+latency_histogram = Histogram(
+    'message_processing_latency_seconds', 
+    'Time from producing to consuming a message',
+    #buckets = [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 15, 20, 100, 200],
+    buckets = [0.1, 1, 5, 10, 20, 100, 200, 400, 800],
+)
+
 start_http_server(8001)
-
 while True:
-
-    records = consumer.poll(timeout_ms=1000)
+    random_timeout_ms = random.randint(500, 1500) # Simulate variable processing time
+    records = consumer.poll(timeout_ms=random_timeout_ms) #timeout_ms is the max time to block waiting for records. We can set it to a lower value to have more frequent polls, or higher value to reduce CPU usage when there are no messages.
+    #records = consumer.poll(timeout_ms=1000) #timeout_ms is the max time to block waiting for records. We can set it to a lower value to have more frequent polls, or higher value to reduce CPU usage when there are no messages.
 
     for topic_partition, messages in records.items():
-        
         partition_id = topic_partition.partition
 
         print(f"Consumed: {len(messages)} from partition #{partition_id}")
@@ -54,12 +63,20 @@ while True:
 
                 print(f"Received: {timestamp=}, {contents=}, from partition #{partition_id}")
 
+                ### compute latency and observe it in the histogram - for prometheus
+                current_time_in_ms = int(round(time.time() * 1000))
+                latency_in_ms = current_time_in_ms - timestamp
+                latency_histogram.observe(latency_in_ms / 1000.0) #record latency in seconds for Prometheus
+                
                 messages_consumed.labels(
                     partition=str(partition_id), 
                     consumer_group=CONSUMER_GROUP
                 ).inc()
 
-                time.sleep(1)
+                ### settting random sleep to simulate variable processing time and to make the latency histogram more interesting. In a real application, this would be the actual processing time of the message.
+                random_sleep = random.uniform(0, 1.2) # Simulate variable processing time
+                time.sleep(random_sleep)
+                #time.sleep(1)
 
             except Exception as e:
                 print(f"ERROR: Failed to parse message from partition {partition_id}: {e}")
