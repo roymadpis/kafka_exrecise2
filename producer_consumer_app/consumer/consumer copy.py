@@ -6,12 +6,6 @@ import time
 import os
 import random
 
-import socket # To get the hostname
-import uuid
-# Create a unique ID for this specific process
-# socket.gethostname() is great for Docker/K8s; uuid is good for local testing
-UNIQUE_ID = f"{socket.gethostname()}-{uuid.uuid4().hex[:6]}"
-
 CONSUMER_GROUP = 'my-consumergroup'
 
 execution_env = os.getenv("EXEC_ENV", "local")
@@ -32,7 +26,7 @@ consumer = KafkaConsumer(
 messages_consumed = Counter(
     'messages_consumed', 
     'Total messages consumed',
-    ['partition', 'consumer_group', 'consumer_id']
+    ['partition', 'consumer_group']
 )
 ### Roy: adding latency histogram to measure time from producing to consuming a message.
 # This requires the producer to include a timestamp in the message, and the consumer to calculate the latency based on that timestamp.
@@ -41,7 +35,7 @@ latency_histogram = Histogram(
     'Total time from producing to consuming (End-to-End)',
     #buckets = [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 15, 20, 100, 200],
     buckets = [0.1, 1, 5, 10, 20, 100, 200, 400, 800],
-    labelnames = ['partition', 'consumer_group', 'consumer_id']
+    labelnames = ['partition', 'consumer_group']
 )
 
 # Queue Time: Broker/Send to Now
@@ -49,7 +43,7 @@ queue_time_histogram = Histogram(
     'message_queue_time_seconds',
     'Time message spent sitting in Kafka topic (Consumer Lag)',
     buckets=[0.1, 1, 5, 10, 20, 100, 200, 400, 800],
-    labelnames = ['partition', 'consumer_group', 'consumer_id']
+    labelnames = ['partition', 'consumer_group']
 )
 
 start_http_server(8001)
@@ -88,8 +82,7 @@ while True:
                 total_latency_sec = (current_time_ms - birth_time_ms) / 1000.0
                 latency_histogram.labels(
                     partition=str(partition_id), 
-                    consumer_group=CONSUMER_GROUP,
-                    consumer_id=UNIQUE_ID
+                    consumer_group=CONSUMER_GROUP
                 ).observe(total_latency_sec)
                 
                 # Time in Queue (Consumer Lag)
@@ -97,15 +90,14 @@ while True:
                     queue_sec = (current_time_ms - send_time_ms) / 1000.0
                     queue_time_histogram.labels(
                         partition=str(partition_id), 
-                        consumer_group=CONSUMER_GROUP,
-                        consumer_id=UNIQUE_ID
+                        consumer_group=CONSUMER_GROUP
                     ).observe(queue_sec)
                     
                     
                 # Access fields
                 timestamp = msg.timestamp
                 contents = msg.contents
-                print(f"Received: {timestamp=}, {contents=}, from partition #{partition_id}, Latency: {total_latency_sec} seconds, consumer_id: {UNIQUE_ID}")
+                print(f"Received: {timestamp=}, {contents=}, from partition #{partition_id}, Latency: {total_latency_sec} seconds")
 
                 ### compute latency and observe it in the histogram - for prometheus
                 # current_time_in_ms = int(round(time.time() * 1000))
@@ -114,8 +106,7 @@ while True:
                 
                 messages_consumed.labels(
                     partition=str(partition_id), 
-                    consumer_group=CONSUMER_GROUP,
-                    consumer_id=UNIQUE_ID
+                    consumer_group=CONSUMER_GROUP
                 ).inc()
 
                 ### settting random sleep to simulate variable processing time and to make the latency histogram more interesting. In a real application, this would be the actual processing time of the message.
