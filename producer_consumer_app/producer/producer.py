@@ -56,9 +56,9 @@ while True:
 
         value_bytes = msg.SerializeToString()
 
-        random_num_messages = random.randint(1, 10) # Simulate variable number of messages per partition
-        for _ in range(random_num_messages): 
-        #for _ in range(partition_id): 
+        #random_num_messages = random.randint(1, 15) # Simulate variable number of messages per partition
+        #for _ in range(random_num_messages): 
+        for _ in range(partition_id): 
             
             random_sleep_between_messages = random.uniform(0, 0.2) # Simulate variable processing time
             time.sleep(random_sleep_between_messages)
