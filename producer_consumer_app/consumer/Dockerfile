@@ -27,3 +27,4 @@ EXPOSE 8001
 
 # Default entrypoint 
 ENTRYPOINT ["uv", "run", "--", "python", "-m", "consumer.consumer"]
+# ENTRYPOINT ["/app/.venv/bin/python", "-m", "consumer.consumer"]

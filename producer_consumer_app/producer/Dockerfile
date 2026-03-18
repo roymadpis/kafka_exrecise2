@@ -27,3 +27,4 @@ EXPOSE 8000
 
 # Default entrypoint 
 ENTRYPOINT ["uv", "run", "--", "python", "-m", "producer.producer"]
+# ENTRYPOINT ["/app/.venv/bin/python", "-m", "producer.producer"]
